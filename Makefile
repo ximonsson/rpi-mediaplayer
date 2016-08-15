@@ -7,6 +7,7 @@ SRC     = player.c packet_buffer.c helpers.c
 OBJ     = $(addprefix $(BUILD)/, $(SRC:.c=.o))
 EXEC    = $(BIN)/player
 LIB     = lib/librpi_mp.a
+VC      = /opt/vc
 
 DEFINES = -DSTANDALONE \
           -D__STDC_CONSTANT_MACROS \
@@ -35,16 +36,16 @@ CFLAGS += -Wall \
           #-g3
 
 INCLUDES = -I./include \
-           -I/opt/vc/include \
-           -I/opt/vc/include/interface/vcos/pthreads \
-           -I/opt/vc/include/interface/vmcs_host/linux \
-           -I/opt/vc/src/hello_pi/libs/ilclient \
-           -I/opt/vc/src/hello_pi/libs/vgfont
+           -I$(VC)/include \
+           -I$(VC)/include/interface/vcos/pthreads \
+           -I$(VC)/include/interface/vmcs_host/linux \
+           -I$(VC)/src/hello_pi/libs/ilclient \
+           -I$(VC)/src/hello_pi/libs/vgfont
 
 LDPATH = -L./lib \
-         -L/opt/vc/src/hello_pi/libs/ilclient \
-         -L/opt/vc/lib \
-         -L/opt/vc/src/hello_pi/libs/vgfont
+         -L$(VC)/src/hello_pi/libs/ilclient \
+         -L$(VC)/lib \
+         -L$(VC)/src/hello_pi/libs/vgfont
 
 LIBS = -lrpi_mp \
        -lilclient \
