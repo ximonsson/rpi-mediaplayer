@@ -1,4 +1,4 @@
-#include "packet_buffer.h"
+#include "rpi_mp_packet_buffer.h"
 
 #define FIFO_ALLOC_SIZE 1000
 

@@ -5,9 +5,9 @@
 #include <libavutil/samplefmt.h>
 #include "bcm_host.h"
 #include "ilclient.h"
-#include "video.h"
-#include "packet_buffer.h"
-#include "helpers.h"
+#include "rpi_mp.h"
+#include "rpi_mp_packet_buffer.h"
+#include "rpi_mp_utils.h"
 
 #define FIFO_SLEEPY_TIME  	    		10000
 #define DIGITAL_AUDIO_DESTINATION_NAME 	"hdmi"
@@ -1014,7 +1014,7 @@ static void cleanup ()
 }
 
 
-uint64_t current_time ()
+uint64_t rpi_mp_current_time ()
 {
 	OMX_TIME_CONFIG_TIMESTAMPTYPE timestamp;
 	memset (&timestamp, 0x0, sizeof (timestamp));
@@ -1033,7 +1033,7 @@ uint64_t current_time ()
 }
 
 
-int seek_media ( int64_t position )
+int rpi_mp_seek (int64_t position)
 {
 	OMX_ERRORTYPE omx_error;
 	// make sure we are paused first
@@ -1130,7 +1130,7 @@ int seek_media ( int64_t position )
 }
 
 
-int initialize_mediaplayer ()
+int rpi_mp_init ()
 {
 	av_register_all ();
 	avformat_network_init ();
@@ -1152,14 +1152,14 @@ int initialize_mediaplayer ()
 }
 
 
-void deinitialize_mediaplayer ()
+void rpi_mp_deinit ()
 {
 	OMX_Deinit();
 	ilclient_destroy (client);
 }
 
 
-int open_media (const char* source, int* image_width, int* image_height, int64_t* duration, int init_flags)
+int rpi_mp_open (const char* source, int* image_width, int* image_height, int64_t* duration, int init_flags)
 {
 	int ret = 0;
 	flags = FIRST_VIDEO |
@@ -1247,7 +1247,7 @@ end:
 }
 
 
-void setup_render_buffer (void* _egl_image, pthread_mutex_t** draw_mutex, pthread_cond_t** draw_cond)
+void rpi_mp_setup_render_buffer (void* _egl_image, pthread_mutex_t** draw_mutex, pthread_cond_t** draw_cond)
 {
     egl_image   = _egl_image;
     *draw_mutex = &buffer_filled_mut;
@@ -1255,7 +1255,7 @@ void setup_render_buffer (void* _egl_image, pthread_mutex_t** draw_mutex, pthrea
 }
 
 
-int start_playback ()
+int rpi_mp_start ()
 {
     // start threads
     pthread_t video_decoding, audio_decoding;
@@ -1287,12 +1287,12 @@ int start_playback ()
 }
 
 
-void stop_playback ()
+void rpi_mp_stop ()
 {
 	SET_FLAG (STOPPED);
 	// make sure to unpause otherwise threads won't exit
 	if (flags & PAUSED)
-        pause_playback();
+        rpi_mp_pause();
 	// flush video component
 	if (video_stream_idx != AVERROR_STREAM_NOT_FOUND)
 	{
@@ -1303,7 +1303,7 @@ void stop_playback ()
 }
 
 
-void pause_playback ()
+void rpi_mp_pause ()
 {
 	OMX_TIME_CONFIG_SCALETYPE scale;
 	memset (&scale, 0x0, sizeof (OMX_TIME_CONFIG_SCALETYPE));
@@ -1347,7 +1347,7 @@ void pause_playback ()
 	}
 }
 
-int get_metadata (const char* key, char** title)
+int rpi_mp_metadata (const char* key, char** title)
 {
     AVDictionaryEntry* entry = NULL;
     entry = av_dict_get (fmt_ctx->metadata, key, 0, AV_DICT_IGNORE_SUFFIX);

@@ -1,7 +1,7 @@
 #include <libavformat/avformat.h>
 #include <pthread.h>
 
-enum FIFO_STATUS 
+enum FIFO_STATUS
 {
 	EMPTY_BUFFER,
 	FULL_BUFFER
@@ -10,7 +10,7 @@ enum FIFO_STATUS
 /**
  *	Represents a FIFO of AVPackets
  */
-typedef struct 
+typedef struct
 {
 	uint 	 		size;
 	uint 			capacity;
@@ -61,7 +61,7 @@ int push_packet ( packet_buffer * buffer, AVPacket   p ) ;
 /**
  *	Pops the first packet from the fifo queue.
  * 	Returns error on empty buffer.
- *	
+ *
  *	@param packet_buffer * buffer
  *		pointer to buffer from which to perform pop
  *	@param AVPacket * p

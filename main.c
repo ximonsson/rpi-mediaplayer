@@ -1,4 +1,4 @@
-#include "video.h"
+#include "rpi_mp.h"
 #include <stdio.h>
 #include <pthread.h>
 #include "GLES/gl.h"
@@ -120,11 +120,11 @@ static void* listen_stdin (void* thread_id)
 		switch (command)
 		{
 			case ' ':
-				pause_playback ();
+				rpi_mp_pause ();
 			    break;
 
 			case 's':
-				stop_playback ();
+				rpi_mp_stop ();
 				done = 1;
 			    break;
 
@@ -133,20 +133,20 @@ static void* listen_stdin (void* thread_id)
 			    break;
 
             case 'n':
-                seek_media (current_time() + 180);
+                rpi_mp_seek (rpi_mp_current_time() + 180);
                 break;
 
             case 'p':
-                seek_media (current_time() - 60);
+                rpi_mp_seek (rpi_mp_current_time() - 60);
                 break;
 
             case 't':
-                t = current_time();
+                t = rpi_mp_current_time();
                 printf ("current time is : %.2d:%.2d:%.2d\n", (int) t / 3600, (int) (t % 3600) / 60, (int) t % 60);
                 break;
 
             case 'a':
-                if (get_metadata ("StreamTitle", &title) == 0)
+                if (rpi_mp_metadata ("StreamTitle", &title) == 0)
                     printf ("title: %s\n", title);
                 else
                     printf ("no title ...\n");
@@ -331,7 +331,7 @@ static void destroy_function ()
         eglDestroyContext (display, context);
         eglTerminate      (display);
     }
-    deinitialize_mediaplayer ();
+    rpi_mp_deinit ();
 }
 
 
@@ -353,7 +353,7 @@ static void draw ()
 
 static void* play_video ()
 {
-    start_playback ();
+    rpi_mp_start ();
     done = 1;
 	return NULL;
 }
@@ -388,18 +388,18 @@ int main (int argc, char** argv)
     bcm_host_init ();
 
 
-	if (initialize_mediaplayer () || open_media (argv[argc - 1],
+	if (rpi_mp_init () || rpi_mp_open (argv[argc - 1],
 		&image_width,
 		&image_height,
 		&duration,
 		flags))
 		return 1;
-		
+
 	if (flags & RENDER_VIDEO_TO_TEXTURE)
 	{
 		init_ogl();
 		init_textures();
-		setup_render_buffer (egl_image, &texture_ready_mut, &texture_ready_cond);
+		rpi_mp_setup_render_buffer (egl_image, &texture_ready_mut, &texture_ready_cond);
 	}
 
     pthread_create (&egl_draw,       NULL, &play_video,   NULL);

@@ -1,5 +1,8 @@
 movies
 shows
 *.o
+*.a
 samples
-mediaplayer
+bin
+build
+lib
