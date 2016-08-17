@@ -9,44 +9,44 @@
 #include "rpi_mp_packet_buffer.h"
 #include "rpi_mp_utils.h"
 
-#define FIFO_SLEEPY_TIME  	    		10000
-#define DIGITAL_AUDIO_DESTINATION_NAME 	"hdmi"
-#define ANALOG_AUDIO_DESTINATION_NAME	"local"
+#define FIFO_SLEEPY_TIME               10000
+#define DIGITAL_AUDIO_DESTINATION_NAME "hdmi"
+#define ANALOG_AUDIO_DESTINATION_NAME  "local"
 
 
 /* OMX Component ports --------------------- */
 enum omxports
 {
-    VIDEO_DECODE_INPUT_PORT 	= 130,
-    VIDEO_DECODE_OUT_PORT		= 131,
-    VIDEO_RENDER_INPUT_PORT 	=  90,
-    VIDEO_SCHEDULER_INPUT_PORT 	=  10,
-    VIDEO_SCHEDULER_OUT_PORT 	=  11,
-    VIDEO_SCHEDULER_CLOCK_PORT 	=  12,
-    EGL_RENDER_INPUT_PORT 		= 220,
-    EGL_RENDER_OUT_PORT 		= 221,
-    AUDIO_RENDER_INPUT_PORT 	= 100,
-    AUDIO_RENDER_CLOCK_PORT		= 101,
-    CLOCK_VIDEO_PORT			=  80,
-    CLOCK_AUDIO_PORT 			=  81
+	VIDEO_DECODE_INPUT_PORT     = 130,
+	VIDEO_DECODE_OUT_PORT       = 131,
+	VIDEO_RENDER_INPUT_PORT     =  90,
+	VIDEO_SCHEDULER_INPUT_PORT  =  10,
+	VIDEO_SCHEDULER_OUT_PORT    =  11,
+	VIDEO_SCHEDULER_CLOCK_PORT  =  12,
+	EGL_RENDER_INPUT_PORT       = 220,
+	EGL_RENDER_OUT_PORT         = 221,
+	AUDIO_RENDER_INPUT_PORT     = 100,
+	AUDIO_RENDER_CLOCK_PORT     = 101,
+	CLOCK_VIDEO_PORT            =  80,
+	CLOCK_AUDIO_PORT            =  81
 };
 
 /* FLAGS ----------------------------------- */
 enum flags
 {
-    STOPPED 					= 0x0001,
-    PAUSED  					= 0x0002,
-    FIRST_VIDEO 				= 0x0004,
-    FIRST_AUDIO 				= 0x0008,
-    PORT_SETTINGS_CHANGED 		= 0x0010,
-    HARDWARE_DECODE_AUDIO 		= 0x0020,
-    DONE_READING				= 0x0040,
-    RENDER_2_TEXTURE 			= 0x0080,
-    VIDEO_PAUSED 				= 0x0100,
-    AUDIO_PAUSED 				= 0x0200,
-    VIDEO_STOPPED 				= 0x0400,
-    AUDIO_STOPPED				= 0x0800,
-    ANALOG_AUDIO_OUT			= 0x1000,
+	STOPPED               = 0x0001,
+	PAUSED                = 0x0002,
+	FIRST_VIDEO           = 0x0004,
+	FIRST_AUDIO           = 0x0008,
+	PORT_SETTINGS_CHANGED = 0x0010,
+	HARDWARE_DECODE_AUDIO = 0x0020,
+	DONE_READING          = 0x0040,
+	RENDER_2_TEXTURE      = 0x0080,
+	VIDEO_PAUSED          = 0x0100,
+	AUDIO_PAUSED          = 0x0200,
+	VIDEO_STOPPED         = 0x0400,
+	AUDIO_STOPPED         = 0x0800,
+	ANALOG_AUDIO_OUT      = 0x1000,
 };
 
 #define OUT_CHANNELS(num_channels) ((num_channels) > 4 ? 8 : (num_channels) > 2 ? 4 : (num_channels))
@@ -56,38 +56,38 @@ enum flags
 #define OMX_INIT_PARAM(type) memset (&type, 0x0, sizeof (type)); type.nSize = sizeof (type); type.nVersion.nVersion = OMX_VERSION;
 
 // Demuxing variables (ffmpeg)
-static AVFormatContext 		* fmt_ctx 			= NULL;
-static AVCodecContext		* video_codec_ctx 	= NULL,
-							* audio_codec_ctx	= NULL;
-static AVStream 			* video_stream 		= NULL,
-							* audio_stream 		= NULL;
-static int 			  	  	  video_stream_idx 	= -1,
-				  		  	  audio_stream_idx  = -1;
-static AVPacket		  	  	  av_packet,
-							  video_packet,
-							  audio_packet;
-static AVFrame 				* av_frame;
+static AVFormatContext      * fmt_ctx          = NULL;
+static AVCodecContext       * video_codec_ctx  = NULL,
+                            * audio_codec_ctx  = NULL;
+static AVStream             * video_stream     = NULL,
+                            * audio_stream     = NULL;
+static int                    video_stream_idx =   -1,
+                              audio_stream_idx =   -1;
+static AVPacket               av_packet,
+                              video_packet,
+                              audio_packet;
+static AVFrame              * av_frame;
 
 // Decoding variables (OMX)
-static COMPONENT_T 			* video_decode		= NULL,
-							* video_scheduler 	= NULL,
-							* video_render 		= NULL,
-							* video_clock		= NULL,
-							* audio_decode		= NULL,
-							* audio_render 		= NULL,
-							* egl_render 		= NULL;
+static COMPONENT_T          * video_decode    = NULL,
+                            * video_scheduler = NULL,
+                            * video_render    = NULL,
+                            * video_clock     = NULL,
+                            * audio_decode    = NULL,
+                            * audio_render    = NULL,
+                            * egl_render      = NULL;
 
-static TUNNEL_T 	 		  video_tunnel [4];
-static TUNNEL_T 			  audio_tunnel [3];
-static COMPONENT_T 			* list         [7];
-static ILCLIENT_T  			* client;
+static TUNNEL_T               video_tunnel[4];
+static TUNNEL_T               audio_tunnel[3];
+static COMPONENT_T          * list[7];
+static ILCLIENT_T           * client;
 
 static OMX_BUFFERHEADERTYPE * omx_video_buffer,
-							* omx_audio_buffer,
-							* omx_egl_buffer;
+                            * omx_audio_buffer,
+                            * omx_egl_buffer;
 
-static void 				* egl_image 		= NULL;
-static int32_t				  flags 			=  0;
+static void                 * egl_image = NULL;
+static int32_t                flags     =  0;
 
 // Helpers
 static packet_buffer video_packet_fifo, audio_packet_fifo;
@@ -107,10 +107,10 @@ static pthread_cond_t  buffer_filled_cond = PTHREAD_COND_INITIALIZER;
  */
 static inline OMX_TICKS pts__omx_timestamp (double pts)
 {
-    OMX_TICKS ticks;
-    ticks.nLowPart 	= (int64_t) pts;
-    ticks.nHighPart = (int64_t) pts >> 32;
-    return ticks;
+	OMX_TICKS ticks;
+	ticks.nLowPart 	= (int64_t) pts;
+	ticks.nHighPart = (int64_t) pts >> 32;
+	return ticks;
 }
 
 /**
@@ -118,12 +118,12 @@ static inline OMX_TICKS pts__omx_timestamp (double pts)
  */
 static inline OMX_TICKS omx_timestamp (AVPacket p)
 {
-    uint64_t pts = p.pts != AV_NOPTS_VALUE ? p.pts : p.dts != AV_NOPTS_VALUE ? p.dts : 0;
-    int      num = fmt_ctx->streams[p.stream_index]->time_base.num;
-    int      den = fmt_ctx->streams[p.stream_index]->time_base.den;
+	uint64_t pts = p.pts != AV_NOPTS_VALUE ? p.pts : p.dts != AV_NOPTS_VALUE ? p.dts : 0;
+	int      num = fmt_ctx->streams[p.stream_index]->time_base.num;
+	int      den = fmt_ctx->streams[p.stream_index]->time_base.den;
 
-    double timestamp = (double) pts * num / den * AV_TIME_BASE;
-    return pts__omx_timestamp (timestamp);
+	double timestamp = (double) pts * num / den * AV_TIME_BASE;
+	return pts__omx_timestamp (timestamp);
 }
 
 /**
@@ -131,8 +131,8 @@ static inline OMX_TICKS omx_timestamp (AVPacket p)
  */
 static inline void lock ()
 {
-    pthread_mutex_lock (&video_mutex);
-    pthread_mutex_lock (&audio_mutex);
+	pthread_mutex_lock (&video_mutex);
+	pthread_mutex_lock (&audio_mutex);
 }
 
 /**
@@ -140,8 +140,8 @@ static inline void lock ()
  */
 static inline void unlock ()
 {
-    pthread_mutex_unlock (&video_mutex);
-    pthread_mutex_unlock (&audio_mutex);
+	pthread_mutex_unlock (&video_mutex);
+	pthread_mutex_unlock (&audio_mutex);
 }
 
 /**
@@ -151,14 +151,15 @@ static inline void unlock ()
  */
 static void fill_egl_texture_buffer (void* data, COMPONENT_T* c)
 {
-    pthread_mutex_lock (&buffer_filled_mut);
-    if ((~flags & STOPPED) &&
-        OMX_FillThisBuffer (ilclient_get_handle (egl_render), omx_egl_buffer) != OMX_ErrorNone)
-    {
-        fprintf (stderr, "OMX_FillThisBuffer failed for egl buffer in callback\n");
-    }
-    pthread_cond_broadcast (&buffer_filled_cond);
-    pthread_mutex_unlock (&buffer_filled_mut);
+	pthread_mutex_lock (&buffer_filled_mut);
+	if ((~flags & STOPPED) &&
+	    c == video_decode &&
+		OMX_FillThisBuffer (ilclient_get_handle (egl_render), omx_egl_buffer) != OMX_ErrorNone)
+	{
+		fprintf (stderr, "OMX_FillThisBuffer failed for egl buffer in callback\n");
+	}
+	pthread_cond_broadcast (&buffer_filled_cond);
+	pthread_mutex_unlock (&buffer_filled_mut);
 }
 
 /**
@@ -175,7 +176,7 @@ static inline int decode_video_packet ()
 		// feed data to video decoder
 		if ((omx_video_buffer = ilclient_get_input_buffer (video_decode, VIDEO_DECODE_INPUT_PORT, 1)) == NULL)
 		{
-			fprintf ( stderr, "Error getting buffer to video decoder\n" );
+			fprintf (stderr, "Error getting buffer to video decoder\n");
 			return 1;
 		}
 		packet_size         	 	 = video_packet.size > omx_video_buffer->nAllocLen ? omx_video_buffer->nAllocLen : video_packet.size;
@@ -196,64 +197,64 @@ static inline int decode_video_packet ()
 		else if (omx_video_buffer->nTimeStamp.nLowPart == 0 && omx_video_buffer->nTimeStamp.nHighPart == 0)
 			omx_video_buffer->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
 
-        // end of frame
-        if (video_packet.size == 0)
-            omx_video_buffer->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
+		// end of frame
+		if (video_packet.size == 0)
+			omx_video_buffer->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
 
-        // Check for changes in port settings
-        if ((~flags & PORT_SETTINGS_CHANGED) && (
-            (packet_size >  0 && ilclient_remove_event   (video_decode, OMX_EventPortSettingsChanged, VIDEO_DECODE_OUT_PORT, 0, 0, 1) == 0 ) ||
-            (packet_size == 0 && ilclient_wait_for_event (video_decode, OMX_EventPortSettingsChanged, VIDEO_DECODE_OUT_PORT, 0, 0, 1, ILCLIENT_EVENT_ERROR | ILCLIENT_PARAMETER_CHANGED, 10000) == 0)))
-        {
-            SET_FLAG (PORT_SETTINGS_CHANGED)
-            // setup tunnel between video decoder and scheduler
-            if (ilclient_setup_tunnel (video_tunnel, 0, 0) != 0)
-            {
-                fprintf (stderr, "Error setting up tunnel between video decoder and scheduler\n");
-                return 1;
-            }
-            ilclient_change_component_state (video_scheduler, OMX_StateExecuting);
-            // setup tunnel between video scheduler and render
-            if (ilclient_setup_tunnel (video_tunnel + 1, 0, 1000) != 0)
-            {
-                fprintf (stderr, "Error setting up tunnel between video scheduler and render\n");
-                return 1;
-            }
-
-            if (flags & RENDER_2_TEXTURE)
-            {
-                ilclient_change_component_state (egl_render, OMX_StateIdle);
-                // Enable the output port and tell egl_render to use the texture as a buffer
-                //ilclient_enable_port(egl_render, 221); THIS BLOCKS SO CANT BE USED
-                if (OMX_SendCommand (ILC_GET_HANDLE (egl_render), OMX_CommandPortEnable, EGL_RENDER_OUT_PORT, NULL) != OMX_ErrorNone)
-                {
-                    fprintf (stderr, "OMX_CommandPortEnable failed.\n");
-                    return 1;
-                }
-                if (OMX_UseEGLImage (ILC_GET_HANDLE (egl_render), &omx_egl_buffer, EGL_RENDER_OUT_PORT, NULL, egl_image) != OMX_ErrorNone)
-                {
-                    fprintf (stderr, "OMX_UseEGLImage failed.\n");
-                    return 1;
-                }
-                // Set egl_render to executing
-                ilclient_change_component_state (egl_render, OMX_StateExecuting);
-                // Request egl_render to write data to the texture buffer
-                if (OMX_FillThisBuffer (ILC_GET_HANDLE (egl_render), omx_egl_buffer) != OMX_ErrorNone)
-                {
-                    fprintf (stderr, "OMX_FillThisBuffer failed for egl buffer.\n");
-                    return 1;
-                }
-            }
-            else
-                ilclient_change_component_state (video_render, OMX_StateExecuting);
-        }
-        // empty buffer
-        if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (video_decode), omx_video_buffer) != OMX_ErrorNone)
-        {
-            fprintf (stderr, "Error emptying video decode buffer\n");
-            return 1;
-        }
-    }
+		// Check for changes in port settings
+		if ((~flags & PORT_SETTINGS_CHANGED) && (
+		    (packet_size >  0 && ilclient_remove_event   (video_decode, OMX_EventPortSettingsChanged, VIDEO_DECODE_OUT_PORT, 0, 0, 1) == 0 ) ||
+		    (packet_size == 0 && ilclient_wait_for_event (video_decode, OMX_EventPortSettingsChanged, VIDEO_DECODE_OUT_PORT, 0, 0, 1, ILCLIENT_EVENT_ERROR | ILCLIENT_PARAMETER_CHANGED, 10000) == 0)))
+		{
+			SET_FLAG (PORT_SETTINGS_CHANGED)
+			// setup tunnel between video decoder and scheduler
+			if (ilclient_setup_tunnel (video_tunnel, 0, 0) != 0)
+			{
+				fprintf (stderr, "Error setting up tunnel between video decoder and scheduler\n");
+				return 1;
+			}
+			ilclient_change_component_state (video_scheduler, OMX_StateExecuting);
+			// setup tunnel between video scheduler and render
+			if (ilclient_setup_tunnel (video_tunnel + 1, 0, 1000) != 0)
+			{
+				fprintf (stderr, "Error setting up tunnel between video scheduler and render\n");
+				return 1;
+			}
+			// if we are rendering to texture we need to some setup to the egl component
+			if (flags & RENDER_2_TEXTURE)
+			{
+				ilclient_change_component_state (egl_render, OMX_StateIdle);
+				// Enable the output port and tell egl_render to use the texture as a buffer
+				//ilclient_enable_port(egl_render, 221); THIS BLOCKS SO CANT BE USED
+				if (OMX_SendCommand (ILC_GET_HANDLE (egl_render), OMX_CommandPortEnable, EGL_RENDER_OUT_PORT, NULL) != OMX_ErrorNone)
+				{
+					fprintf (stderr, "OMX_CommandPortEnable failed.\n");
+					return 1;
+				}
+				if (OMX_UseEGLImage (ILC_GET_HANDLE (egl_render), &omx_egl_buffer, EGL_RENDER_OUT_PORT, NULL, egl_image) != OMX_ErrorNone)
+				{
+					fprintf (stderr, "OMX_UseEGLImage failed.\n");
+					return 1;
+				}
+				// Set egl_render to executing
+				ilclient_change_component_state (egl_render, OMX_StateExecuting);
+				// Request egl_render to write data to the texture buffer
+				if (OMX_FillThisBuffer (ILC_GET_HANDLE (egl_render), omx_egl_buffer) != OMX_ErrorNone)
+				{
+					fprintf (stderr, "OMX_FillThisBuffer failed for egl buffer.\n");
+					return 1;
+				}
+			}
+			else
+				ilclient_change_component_state (video_render, OMX_StateExecuting);
+		}
+		// empty buffer
+		if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (video_decode), omx_video_buffer) != OMX_ErrorNone)
+		{
+			fprintf (stderr, "Error emptying video decode buffer\n");
+			return 1;
+		}
+	}
 	return 0;
 }
 
@@ -922,9 +923,9 @@ static int open_codec_context (int* stream_idx, enum AVMediaType type)
 		return ret;
 	}
 
-	stream 		= fmt_ctx->streams[*stream_idx];
-	codec_ctx 	= stream->codec;
-	codec 		= avcodec_find_decoder (codec_ctx->codec_id);
+	stream    = fmt_ctx->streams[*stream_idx];
+	codec_ctx = stream->codec;
+	codec     = avcodec_find_decoder (codec_ctx->codec_id);
 
 	if (!codec)
 	{
@@ -949,11 +950,10 @@ static int create_hw_clock ()
 		fprintf (stderr, "Error creating IL COMPONENT video clock\n");
 		ret = -14;
 	}
-	list[2] = video_clock;
-
 	if (video_clock == NULL)
 		fprintf (stderr, "Error?\n");
 
+	list[2] = video_clock;
 	return ret;
 }
 
@@ -965,10 +965,10 @@ static int setup_clock ()
 
 	// set clock configuration
 	memset (&clock_state, 0, sizeof (clock_state));
-	clock_state.nSize 				= sizeof (clock_state);
-	clock_state.nVersion.nVersion 	= OMX_VERSION;
-	clock_state.eState 			  	= OMX_TIME_ClockStateWaitingForStartTime;
-	clock_state.nWaitMask 		  	= 0;
+	clock_state.nSize             = sizeof (clock_state);
+	clock_state.nVersion.nVersion = OMX_VERSION;
+	clock_state.eState            = OMX_TIME_ClockStateWaitingForStartTime;
+	clock_state.nWaitMask         = 0;
 
 	if (video_stream_idx != AVERROR_STREAM_NOT_FOUND)
 		clock_state.nWaitMask |= OMX_CLOCKPORT0;
@@ -993,12 +993,12 @@ static void cleanup ()
 	if (video_stream_idx != AVERROR_STREAM_NOT_FOUND)
 	{
 		close_video ();
-        printf ("    video closed\n");
+		printf ("    video closed\n");
 	}
 	if (audio_stream_idx != AVERROR_STREAM_NOT_FOUND)
 	{
 		close_audio ();
-        printf ("    audio closed\n");
+		printf ("    audio closed\n");
 	}
 
 	printf ("  freeing ffmpeg structs\n");
@@ -1033,6 +1033,7 @@ uint64_t rpi_mp_current_time ()
 }
 
 
+// TODO implement correctly
 int rpi_mp_seek (int64_t position)
 {
 	OMX_ERRORTYPE omx_error;
@@ -1167,7 +1168,7 @@ int rpi_mp_open (const char* source, int* image_width, int* image_height, int64_
 			(init_flags & RENDER_VIDEO_TO_TEXTURE ? RENDER_2_TEXTURE : 0) |
 			(init_flags & ANALOG_AUDIO ? ANALOG_AUDIO_OUT : 0);
 
-    // egl callback in case we are rendering to texture
+	// egl callback in case we are rendering to texture
 	if (flags & RENDER_2_TEXTURE)
 		ilclient_set_fill_buffer_done_callback (client, fill_egl_texture_buffer, 0);
 
@@ -1183,43 +1184,43 @@ int rpi_mp_open (const char* source, int* image_width, int* image_height, int64_
 		fprintf (stderr, "Could not find stream information\n");
 		return 1;
 	}
-    // create clock
-    if (create_hw_clock() == 0)
-    {
-	    // open video
-	    if (open_codec_context (&video_stream_idx, AVMEDIA_TYPE_VIDEO) == 0)
-	    {
-		    video_stream    = fmt_ctx->streams[video_stream_idx];
-		    video_codec_ctx = video_stream->codec;
-		    if (open_video() == 0)
-	    	{
-	    		* image_width 	= video_codec_ctx->width;
-	    		* image_height 	= video_codec_ctx->height;
-	    	}
-	    }
-	    // open audio
-	    if (open_codec_context (&audio_stream_idx, AVMEDIA_TYPE_AUDIO) == 0)
-	    {
-		    audio_stream    = fmt_ctx->streams[audio_stream_idx];
-		    audio_codec_ctx = audio_stream->codec;
-		    open_audio ();
-	    }
-	    // check that we did get streams
-	    if (video_stream_idx == AVERROR_STREAM_NOT_FOUND && audio_stream_idx == AVERROR_STREAM_NOT_FOUND)
-	    {
-		    fprintf (stderr, "Could not find either audio or video in input, aborting\n");
-		    ret = 1;
-		    goto end;
-	    }
+	// create clock
+	if (create_hw_clock() == 0)
+	{
+		// open video
+		if (open_codec_context (&video_stream_idx, AVMEDIA_TYPE_VIDEO) == 0)
+		{
+			video_stream    = fmt_ctx->streams[video_stream_idx];
+			video_codec_ctx = video_stream->codec;
+			if (open_video() == 0)
+			{
+				*image_width  = video_codec_ctx->width;
+				*image_height = video_codec_ctx->height;
+			}
+		}
+		// open audio
+		if (open_codec_context (&audio_stream_idx, AVMEDIA_TYPE_AUDIO) == 0)
+		{
+			audio_stream    = fmt_ctx->streams[audio_stream_idx];
+			audio_codec_ctx = audio_stream->codec;
+			open_audio ();
+		}
+		// check that we did get streams
+		if (video_stream_idx == AVERROR_STREAM_NOT_FOUND && audio_stream_idx == AVERROR_STREAM_NOT_FOUND)
+		{
+			fprintf (stderr, "Could not find either audio or video in input, aborting\n");
+			ret = 1;
+			goto end;
+		}
 
-	    *duration = fmt_ctx->duration / AV_TIME_BASE;
+		*duration = fmt_ctx->duration / AV_TIME_BASE;
 
-	    if (setup_clock() != 0)
-    	{
-    		fprintf (stderr, "Could not setup HW clock\n");
-    		ret = 1;
-    		goto end;
-    	}
+		if (setup_clock() != 0)
+		{
+			fprintf (stderr, "Could not setup HW clock\n");
+			ret = 1;
+			goto end;
+		}
 	}
 	else
 	{
@@ -1228,18 +1229,18 @@ int rpi_mp_open (const char* source, int* image_width, int* image_height, int64_
 	};
 	// dump input format
 	av_dump_format (fmt_ctx, 0, source, 0);
-    // allocate frame for decoding (audio here)
+	// allocate frame for decoding (audio here)
 	if (!(av_frame = av_frame_alloc()))
-    {
-        fprintf (stderr, "Could not allocate frame\n");
-        ret = AVERROR (ENOMEM);
-        goto end;
-    }
+	{
+		fprintf (stderr, "Could not allocate frame\n");
+		ret = AVERROR (ENOMEM);
+		goto end;
+	}
 	// initialize packet
 	av_init_packet (&av_packet);
 	av_packet.data = NULL;
 	av_packet.size = 0;
-    // init buffers
+	// init buffers
 	init_packet_buffer (&video_packet_fifo, 1024 * 1024 * 5);
 	init_packet_buffer (&audio_packet_fifo, 1024 * 1024 * 5);
 end:
@@ -1249,41 +1250,41 @@ end:
 
 void rpi_mp_setup_render_buffer (void* _egl_image, pthread_mutex_t** draw_mutex, pthread_cond_t** draw_cond)
 {
-    egl_image   = _egl_image;
-    *draw_mutex = &buffer_filled_mut;
-    *draw_cond  = &buffer_filled_cond;
+	egl_image   = _egl_image;
+	*draw_mutex = &buffer_filled_mut;
+	*draw_cond  = &buffer_filled_cond;
 }
 
 
 int rpi_mp_start ()
 {
-    // start threads
-    pthread_t video_decoding, audio_decoding;
-    pthread_create (&video_decoding, NULL, (void*) &video_decoding_thread, NULL);
-    pthread_create (&audio_decoding, NULL, (void*) &audio_decoding_thread, NULL);
+	// start threads
+	pthread_t video_decoding, audio_decoding;
+	pthread_create (&video_decoding, NULL, (void*) &video_decoding_thread, NULL);
+	pthread_create (&audio_decoding, NULL, (void*) &audio_decoding_thread, NULL);
 
-    // start clock
-    ilclient_change_component_state (video_clock, OMX_StateExecuting);
+	// start clock
+	ilclient_change_component_state (video_clock, OMX_StateExecuting);
 
-    // read packets from source
-    while (~flags & STOPPED && (av_read_frame (fmt_ctx, &av_packet) >= 0))
-    {
-        if (process_packet() != 0)
-            break;
-    }
-    SET_FLAG (DONE_READING);
-    printf ("done reading\n");
+	// read packets from source
+	while (~flags & STOPPED && (av_read_frame (fmt_ctx, &av_packet) >= 0))
+	{
+		if (process_packet() != 0)
+			break;
+	}
+	SET_FLAG (DONE_READING);
+	printf ("done reading\n");
 
-    // wait for all threads to end
-    pthread_join (video_decoding, NULL);
-    pthread_join (audio_decoding, NULL);
-    SET_FLAG (STOPPED);
+	// wait for all threads to end
+	pthread_join (video_decoding, NULL);
+	pthread_join (audio_decoding, NULL);
+	SET_FLAG (STOPPED);
 
-    // cleanup
-    printf ("cleaning up... \n");
-    cleanup ();
-    printf ("stopping reading thread\n");
-    return 0;
+	// cleanup
+	printf ("cleaning up... \n");
+	cleanup ();
+	printf ("stopping reading thread\n");
+	return 0;
 }
 
 

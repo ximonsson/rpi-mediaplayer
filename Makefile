@@ -9,6 +9,19 @@ EXEC    = $(BIN)/player
 LIB     = lib/librpi_mp.a
 VC      = /opt/vc
 
+ifdef VERBOSE
+CFLAGS += -v
+endif
+
+# if we are cross compiling
+ifdef CROSS
+CC       = arm-linux-gnueabihf-gcc
+AR       = arm-linux-gnueabihf-ar
+SYSROOT  = $(HOME)/mnt/penguin
+VC       = $(SYSROOT)/opt/vc
+CFLAGS  += -mfloat-abi=hard -march=armv6 -mfpu=vfp -marm --sysroot=$(SYSROOT)
+endif
+
 DEFINES = -DSTANDALONE \
           -D__STDC_CONSTANT_MACROS \
           -D__STDC_LIMIT_MACROS \
@@ -42,10 +55,10 @@ INCLUDES = -I./include \
            -I$(VC)/src/hello_pi/libs/ilclient \
            -I$(VC)/src/hello_pi/libs/vgfont
 
-LDPATH = -L./lib \
-         -L$(VC)/src/hello_pi/libs/ilclient \
-         -L$(VC)/lib \
-         -L$(VC)/src/hello_pi/libs/vgfont
+LDPATH += -L./lib \
+          -L$(VC)/src/hello_pi/libs/ilclient \
+          -L$(VC)/lib \
+          -L$(VC)/src/hello_pi/libs/vgfont
 
 LIBS = -lrpi_mp \
        -lilclient \

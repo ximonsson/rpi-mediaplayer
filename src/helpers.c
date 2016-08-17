@@ -4,8 +4,8 @@
 
 void flt_to_s16 (uint8_t *flt, uint8_t **s16, int size)
 {
-	int 		i = 0;
-			 *s16 = (uint8_t *) malloc (size / 2);
+	int         i = 0;
+             *s16 = (uint8_t *) malloc (size / 2);
 	int16_t    *p = (int16_t *) *s16;
 	float     *fp = (float   *) flt;
 
