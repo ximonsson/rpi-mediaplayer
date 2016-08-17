@@ -179,10 +179,10 @@ static inline int decode_video_packet ()
 			fprintf (stderr, "Error getting buffer to video decoder\n");
 			return 1;
 		}
-		packet_size         	 	 = video_packet.size > omx_video_buffer->nAllocLen ? omx_video_buffer->nAllocLen : video_packet.size;
+		packet_size                  = video_packet.size > omx_video_buffer->nAllocLen ? omx_video_buffer->nAllocLen : video_packet.size;
 		omx_video_buffer->nFilledLen = packet_size;
 		omx_video_buffer->nOffset    = 0;
-		omx_video_buffer->nFlags 	 = 0;
+		omx_video_buffer->nFlags     = 0;
 		omx_video_buffer->nTimeStamp = ticks;
 		// copy data to buffer
 		memcpy (omx_video_buffer->pBuffer, video_packet.data, packet_size);
@@ -245,6 +245,7 @@ static inline int decode_video_packet ()
 					return 1;
 				}
 			}
+			// if we are not rendering to texture we just need to change the video renderer to excecuting
 			else
 				ilclient_change_component_state (video_render, OMX_StateExecuting);
 		}
@@ -259,42 +260,42 @@ static inline int decode_video_packet ()
 }
 
 /**
- * Thread for decoding video packets.
+ *  Thread for decoding video packets.
  *  Polls the video packet buffer for new packets to decode and
  *  present on screen.
  */
 static void video_decoding_thread ()
 {
-    uint8_t *d;
-    int ret;
-    while (~flags & STOPPED && (~flags & DONE_READING || video_packet_fifo.n_packets))
-    {
-        // check pause
-        if (flags & PAUSED)
-        {
-            WAIT_WHILE_PAUSED
-        }
-        // get packet
-        pthread_mutex_lock (&video_mutex);
-        if ((ret = pop_packet (&video_packet_fifo, &video_packet)) != 0)
-        {
-            pthread_mutex_unlock (&video_mutex);
-            usleep (FIFO_SLEEPY_TIME);
-            continue;
-        }
-        // decode
-        d = video_packet.data;
-        ret = decode_video_packet ();
-        video_packet.data = d;
-        av_packet_unref (&video_packet);
-        pthread_mutex_unlock (&video_mutex);
-        if (ret != 0)
-        {
-            fprintf (stderr, "Error while decoding, ending thread\n");
-            break;
-        }
-    }
-    printf ("stopping video decoding thread\n");
+	uint8_t *d;
+	int ret;
+	while (~flags & STOPPED && (~flags & DONE_READING || video_packet_fifo.n_packets))
+	{
+		// check pause
+		if (flags & PAUSED)
+		{
+			WAIT_WHILE_PAUSED
+		}
+		// get packet
+		pthread_mutex_lock (&video_mutex);
+		if ((ret = pop_packet (&video_packet_fifo, &video_packet)) != 0)
+		{
+			pthread_mutex_unlock (&video_mutex);
+			usleep (FIFO_SLEEPY_TIME);
+			continue;
+		}
+		// decode
+		d = video_packet.data;
+		ret = decode_video_packet ();
+		video_packet.data = d;
+		av_packet_unref (&video_packet);
+		pthread_mutex_unlock (&video_mutex);
+		if (ret != 0)
+		{
+			fprintf (stderr, "Error while decoding, ending thread\n");
+			break;
+		}
+	}
+	printf ("stopping video decoding thread\n");
 }
 
 /**
@@ -303,148 +304,147 @@ static void video_decoding_thread ()
  */
 static inline int decode_audio_packet ()
 {
-    int got_frame = 0, ret = 0, data_size = 0;
-    uint8_t *audio_data, *audio_data_p = NULL;
-    OMX_TICKS ticks = omx_timestamp (audio_packet);
+	int got_frame = 0, ret = 0, data_size = 0;
+	uint8_t *audio_data, *audio_data_p = NULL;
+	OMX_TICKS ticks = omx_timestamp (audio_packet);
 
-    // some audio decoders only decode part of the data
-    while (audio_packet.size > 0)
-    {
-        if ((ret = avcodec_decode_audio4 (audio_codec_ctx, av_frame, &got_frame, &audio_packet)) < 0)
-        {
-            fprintf (stderr, "Error decoding audio packet \n");
-            return ret; // we return that it's alright to continue
-        }
-        audio_packet.size -= ret;
-        audio_packet.data += ret;
+	// some audio decoders only decode part of the data
+	while (audio_packet.size > 0)
+	{
+		if ((ret = avcodec_decode_audio4 (audio_codec_ctx, av_frame, &got_frame, &audio_packet)) < 0)
+		{
+			fprintf (stderr, "Error decoding audio packet \n");
+			return ret; // we return that it's alright to continue
+		}
+		audio_packet.size -= ret;
+		audio_packet.data += ret;
 
-        if (got_frame)
-        {
-            if ((data_size = av_samples_get_buffer_size (NULL,
+		if (got_frame)
+		{
+			if ((data_size = av_samples_get_buffer_size (NULL,
                                                          audio_codec_ctx->channels,
                                                          av_frame->nb_samples,
                                                          audio_codec_ctx->sample_fmt,
                                                          1)) <= 0)
-            {
-                fprintf (stderr, "Error getting samples buffer size\n");
-                break;
-            }
+			{
+				fprintf (stderr, "Error getting samples buffer size\n");
+				break;
+			}
+			int bps = av_get_bytes_per_sample (audio_codec_ctx->sample_fmt);
 
-            int bps = av_get_bytes_per_sample (audio_codec_ctx->sample_fmt);
+			// interleave data if it is planar
+			if (av_sample_fmt_is_planar (audio_codec_ctx->sample_fmt))
+			{
+				int i, ch;
+				audio_data = (uint8_t *) malloc (data_size);
+				audio_data_p = audio_data;
+				for (i = 0; i < av_frame->nb_samples; i ++)
+					for (ch = 0; ch < audio_codec_ctx->channels; ch ++, audio_data_p += bps)
+						memcpy (audio_data_p, av_frame->data[ch] + i * bps, bps);
+				audio_data_p = audio_data;
+			}
+			else
+				audio_data = av_frame->data[0];
 
-            // interleave data if it is planar
-            if (av_sample_fmt_is_planar (audio_codec_ctx->sample_fmt))
-            {
-                int i, ch;
-                audio_data = (uint8_t *) malloc (data_size);
-                audio_data_p = audio_data;
-                for (i = 0; i < av_frame->nb_samples; i ++)
-                    for (ch = 0; ch < audio_codec_ctx->channels; ch ++, audio_data_p += bps)
-                        memcpy (audio_data_p, av_frame->data[ch] + i * bps, bps);
-                audio_data_p = audio_data;
-            }
-            else
-                audio_data = av_frame->data[0];
+			// if 32-bit we need to resample to 16-bit
+			// (we are assuming it's floating point in this case)
+			if (bps > 2)
+			{
+				uint8_t *tmp = NULL;
+				flt_to_s16 (audio_data, &tmp, data_size);
 
-            // if 32-bit we need to resample to 16-bit
-            // (we are assuming it's floating point in this case)
-            if (bps > 2)
-            {
-                uint8_t *tmp = NULL;
-                flt_to_s16 (audio_data, &tmp, data_size);
+				if (audio_data_p)
+					free (audio_data_p);
 
-                if (audio_data_p)
-                    free (audio_data_p);
+				data_size /= 2;
+				audio_data = audio_data_p = tmp;
+			}
 
-                data_size /= 2;
-                audio_data = audio_data_p = tmp;
-            }
+			// send frame data to audio render
+			while (data_size > 0)
+			{
+				if ((omx_audio_buffer = ilclient_get_input_buffer (audio_render, AUDIO_RENDER_INPUT_PORT, 1)) == NULL)
+				{
+					fprintf ( stderr, "Error getting buffer to audio decoder\n" );
+					return 1; // errors with hardware, stop trying to render audio
+				}
+				omx_audio_buffer->nFilledLen = data_size > omx_audio_buffer->nAllocLen ? omx_audio_buffer->nAllocLen : data_size;
+				omx_audio_buffer->nOffset    = 0;
+				omx_audio_buffer->nFlags	 = 0;
+				// copy data
+				memcpy (omx_audio_buffer->pBuffer, audio_data, omx_audio_buffer->nFilledLen);
+				audio_data += omx_audio_buffer->nFilledLen;
+				data_size  -= omx_audio_buffer->nFilledLen;
 
-            // send frame data to audio render
-            while (data_size > 0)
-            {
-                if ((omx_audio_buffer = ilclient_get_input_buffer (audio_render, AUDIO_RENDER_INPUT_PORT, 1)) == NULL)
-                {
-                    fprintf ( stderr, "Error getting buffer to audio decoder\n" );
-                    return 1; // errors with hardware, stop trying to render audio
-                }
-                omx_audio_buffer->nFilledLen = data_size > omx_audio_buffer->nAllocLen ? omx_audio_buffer->nAllocLen : data_size;
-                omx_audio_buffer->nOffset    = 0;
-                omx_audio_buffer->nFlags	 = 0;
-                // copy data
-                memcpy (omx_audio_buffer->pBuffer, audio_data, omx_audio_buffer->nFilledLen);
-                audio_data += omx_audio_buffer->nFilledLen;
-                data_size  -= omx_audio_buffer->nFilledLen;
-
-                // first audio packet of stream
-                if (flags & FIRST_AUDIO)
-                {
-                    omx_audio_buffer->nFlags = OMX_BUFFERFLAG_STARTTIME;
-                    UNSET_FLAG (FIRST_AUDIO)
-                }
-                else
-                {
-                    omx_audio_buffer->nTimeStamp = ticks;
-                    if (omx_audio_buffer->nTimeStamp.nLowPart == 0 && omx_audio_buffer->nTimeStamp.nHighPart == 0)
-                        omx_audio_buffer->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
-                }
-                // last packet of frame
-                if (data_size == 0 && audio_packet.size == 0)
-                	omx_audio_buffer->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
-
-                // empty the buffer for render
-                if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (audio_render), omx_audio_buffer) != OMX_ErrorNone)
-                {
-                    fprintf (stderr, "Error emptying audio render buffer\n");
-                    return 1; // errors with hardware, stop trying to render audio
-                }
-            }
-        }
-    }
-    if (audio_data_p)
-        free (audio_data_p);
-    audio_packet.size = 0;
-    audio_packet.data = NULL;
-    return 0;
+				// first audio packet of stream
+				if (flags & FIRST_AUDIO)
+				{
+					omx_audio_buffer->nFlags = OMX_BUFFERFLAG_STARTTIME;
+					UNSET_FLAG (FIRST_AUDIO)
+				}
+				else
+				{
+					omx_audio_buffer->nTimeStamp = ticks;
+					if (omx_audio_buffer->nTimeStamp.nLowPart == 0 && omx_audio_buffer->nTimeStamp.nHighPart == 0)
+						omx_audio_buffer->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
+				}
+				// last packet of frame
+				if (data_size == 0 && audio_packet.size == 0)
+					omx_audio_buffer->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
+				// empty the buffer for render
+				if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (audio_render), omx_audio_buffer) != OMX_ErrorNone)
+				{
+					fprintf (stderr, "Error emptying audio render buffer\n");
+					return 1; // errors with hardware, stop trying to render audio
+				}
+			}
+		}
+	}
+	if (audio_data_p)
+		free (audio_data_p);
+	audio_packet.size = 0;
+	audio_packet.data = NULL;
+	return 0;
 }
 
 
 static int hardwaredecode_audio_packet ()
 {
-    OMX_TICKS ticks;
-    while (audio_packet.size > 0)
-    {
-        if ((omx_audio_buffer = ilclient_get_input_buffer (audio_decode, 120, 1)) == NULL)
-        {
-            fprintf (stderr, "Error getting buffer to audio decoder\n");
-            return 1;
-        }
+	OMX_TICKS ticks;
+	while (audio_packet.size > 0)
+	{
+		// get buffer handler to audio decoder
+		if ((omx_audio_buffer = ilclient_get_input_buffer (audio_decode, 120, 1)) == NULL)
+		{
+			fprintf (stderr, "Error getting buffer to audio decoder\n");
+			return 1;
+		}
+		// copy data to the buffer
+		omx_audio_buffer->nFilledLen = audio_packet.size < omx_audio_buffer->nAllocLen ? audio_packet.size : omx_audio_buffer->nAllocLen;
+		memcpy (omx_audio_buffer->pBuffer, audio_packet.data, omx_audio_buffer->nFilledLen);
 
-        omx_audio_buffer->nFilledLen = audio_packet.size < omx_audio_buffer->nAllocLen ? audio_packet.size : omx_audio_buffer->nAllocLen;
-        memcpy (omx_audio_buffer->pBuffer, audio_packet.data, omx_audio_buffer->nFilledLen);
+		audio_packet.size -= omx_audio_buffer->nFilledLen;
+		audio_packet.data += omx_audio_buffer->nFilledLen;
 
-        audio_packet.size -= omx_audio_buffer->nFilledLen;
-        audio_packet.data += omx_audio_buffer->nFilledLen;
+		omx_audio_buffer->nOffset = 0;
+		omx_audio_buffer->nFlags  = OMX_BUFFERFLAG_TIME_UNKNOWN;
 
-        omx_audio_buffer->nOffset = 0;
-        omx_audio_buffer->nFlags  = OMX_BUFFERFLAG_TIME_UNKNOWN;
-
-        if (flags & FIRST_AUDIO)
-        {
-            omx_audio_buffer->nFlags = OMX_BUFFERFLAG_STARTTIME;
-            UNSET_FLAG (FIRST_AUDIO)
-        }
-
-        ticks.nLowPart  = audio_packet.pts;
-        ticks.nHighPart = audio_packet.pts >> 32;
-        omx_audio_buffer->nTimeStamp = ticks;
-        if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (audio_decode), omx_audio_buffer) != OMX_ErrorNone)
-        {
-            fprintf (stderr, "Error emptying audio render buffer\n");
-            return 1; // errors with hardware, stop trying to render audio
-        }
-    }
-    return 0;
+		// first audio packet
+		if (flags & FIRST_AUDIO)
+		{
+			omx_audio_buffer->nFlags = OMX_BUFFERFLAG_STARTTIME;
+			UNSET_FLAG (FIRST_AUDIO)
+		}
+		ticks.nLowPart  = audio_packet.pts;
+		ticks.nHighPart = audio_packet.pts >> 32;
+		omx_audio_buffer->nTimeStamp = ticks;
+		if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (audio_decode), omx_audio_buffer) != OMX_ErrorNone)
+		{
+			fprintf (stderr, "Error emptying audio render buffer\n");
+			return 1; // errors with hardware, stop trying to render audio
+		}
+	}
+	return 0;
 }
 
 /**
@@ -454,42 +454,43 @@ static int hardwaredecode_audio_packet ()
  */
 static void audio_decoding_thread ()
 {
-    // AVPacket tmp_pack;
-    uint8_t *d;
-    int ret;
-    while (~flags & STOPPED)
-    {
-        if (flags & DONE_READING && !audio_packet_fifo.n_packets)
-            break;
+	// AVPacket tmp_pack;
+	uint8_t *d;
+	int ret;
+	while (~flags & STOPPED)
+	{
+		// check if we are done demuxing
+		if (flags & DONE_READING && !audio_packet_fifo.n_packets)
+			break;
+		// paused
+		if (flags & PAUSED)
+		{
+			WAIT_WHILE_PAUSED
+		}
+		// pop a audio packet from the decoding queue
+		pthread_mutex_lock (&audio_mutex);
+		if ((ret = pop_packet (&audio_packet_fifo, &audio_packet)) != 0)
+		{
+			pthread_mutex_unlock (&audio_mutex);
+			usleep (FIFO_SLEEPY_TIME);
+			continue;
+		}
+		// send data for decoding
+		d = audio_packet.data;
+		ret = flags & HARDWARE_DECODE_AUDIO ? hardwaredecode_audio_packet () : decode_audio_packet () ;
+		audio_packet.data = d;
+		pthread_mutex_unlock (&audio_mutex);
 
-        if (flags & PAUSED)
-        {
-            WAIT_WHILE_PAUSED
-        }
-
-        pthread_mutex_lock (&audio_mutex);
-        if ((ret = pop_packet (&audio_packet_fifo, &audio_packet)) != 0)
-        {
-            pthread_mutex_unlock (&audio_mutex);
-            usleep (FIFO_SLEEPY_TIME);
-            continue;
-        }
-
-        d = audio_packet.data;
-        ret = flags & HARDWARE_DECODE_AUDIO ? hardwaredecode_audio_packet () : decode_audio_packet () ;
-        audio_packet.data = d;
-
-        pthread_mutex_unlock (&audio_mutex);
-
-        if (ret == 0)
-            av_packet_unref (&audio_packet);
-        else if (ret > 0)
-        {
-            fprintf (stderr, "Error while decoding audio packet, ending thread\n");
-            break;
-        }
-    }
-    printf ("stopping audio decoding thread\n");
+		// deallocate packet
+		if (ret == 0)
+			av_packet_unref (&audio_packet);
+		else if (ret > 0)
+		{
+			fprintf (stderr, "Error while decoding audio packet, ending thread\n");
+			break;
+		}
+	}
+	printf ("stopping audio decoding thread\n");
 }
 
 /**
@@ -498,36 +499,36 @@ static void audio_decoding_thread ()
  */
 static inline int process_packet ()
 {
-    int ret = 0;
-    packet_buffer* buf = NULL;
-    // negative size ???
-    if (av_packet.size < 0)
-        return ret;
+	int ret = 0;
+	packet_buffer* buf = NULL;
+	// negative size ???
+	if (av_packet.size < 0)
+		return ret;
 
-    // current packet is video
-    if (av_packet.stream_index == video_stream_idx)
-        buf = &video_packet_fifo;
-    // current packet is audio
-    else if (av_packet.stream_index == audio_stream_idx)
-        buf = &audio_packet_fifo;
-    // not interrested
-    else
-        return ret;
+	// current packet is video
+	if (av_packet.stream_index == video_stream_idx)
+		buf = &video_packet_fifo;
+	// current packet is audio
+	else if (av_packet.stream_index == audio_stream_idx)
+		buf = &audio_packet_fifo;
+	// not interrested
+	else
+		return ret;
 
-    // the buffer might be full therefor we need to keep trying until there room has been
-    // made by either decoding threads, hence the while loop
-    while (~flags & STOPPED)
-    {
-        if (flags & PAUSED)
-            WAIT_WHILE_PAUSED
-        ret = push_packet (buf, av_packet);
-        // if we successfully added the packet break
-        if (ret == 0)
-            break;
-        // sleep a little to save CPU
-        usleep (FIFO_SLEEPY_TIME);
-    }
-    return 0;
+	// the buffer might be full therefor we need to keep trying until there room has been
+	// made by either decoding threads, hence the while loop
+	while (~flags & STOPPED)
+	{
+		if (flags & PAUSED)
+		WAIT_WHILE_PAUSED
+		ret = push_packet (buf, av_packet);
+		// if we successfully added the packet break
+		if (ret == 0)
+			break;
+		// sleep a little to save CPU
+		usleep (FIFO_SLEEPY_TIME);
+	}
+	return 0;
 }
 
 /**
@@ -537,126 +538,126 @@ static inline int process_packet ()
  */
 static int open_video ()
 {
-    int ret = 0;
-    OMX_VIDEO_PARAM_PORTFORMATTYPE video_format;
-    int render_input_port = VIDEO_RENDER_INPUT_PORT;
+	int ret = 0;
+	OMX_VIDEO_PARAM_PORTFORMATTYPE video_format;
+	int render_input_port = VIDEO_RENDER_INPUT_PORT;
 
-    memset (video_tunnel, 0, sizeof (video_tunnel));
-    // create video decode component
-    if (ilclient_create_component (client, &video_decode, "video_decode", ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS) != 0)
-    {
-        fprintf (stderr, "Error creating IL COMPONENT video decoder\n");
-        ret = -14;
-    }
-    list[0] = video_decode;
+	memset (video_tunnel, 0, sizeof (video_tunnel));
+	// create video decode component
+	if (ilclient_create_component (client, &video_decode, "video_decode", ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS) != 0)
+	{
+		fprintf (stderr, "Error creating IL COMPONENT video decoder\n");
+		ret = -14;
+	}
+	list[0] = video_decode;
 
-    // create the render component which is either a video_render (the display) or egl_render (texture)
-    if (flags & RENDER_2_TEXTURE)
-    {
+	// create the render component which is either a video_render (the display) or egl_render (texture)
+	if (flags & RENDER_2_TEXTURE)
+	{
 		// ilclient_set_fill_buffer_done_callback (client, fill_egl_texture_buffer, 0);
-        // create egl_render component
-        if (ilclient_create_component (client, &egl_render, "egl_render", ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_OUTPUT_BUFFERS) != 0)
-        {
-            fprintf (stderr, "Error creating IL COMPONENT egl render\n");
-            ret = -14;
-        }
-        list[1] = egl_render;
-        render_input_port = EGL_RENDER_INPUT_PORT;
-    }
-    else
-    {
-        // create video render component
-        if (ilclient_create_component (client, &video_render, "video_render", ILCLIENT_DISABLE_ALL_PORTS) != 0)
-        {
-            fprintf (stderr, "Error creating IL COMPONENT video render\n");
-            ret = -14;
-        }
-        list [1] = video_render;
-    }
-    // create video scheduler
-    if (ilclient_create_component (client, &video_scheduler, "video_scheduler", ILCLIENT_DISABLE_ALL_PORTS) != 0)
-    {
-        fprintf (stderr, "Error creating IL COMPONENT video scheduler\n");
-        ret = -13;
-    }
-    list[3] = video_scheduler;
-    // setup tunnels
-    set_tunnel (video_tunnel, 		video_decode, 		 VIDEO_DECODE_OUT_PORT, 	video_scheduler, 	VIDEO_SCHEDULER_INPUT_PORT);
-    set_tunnel (video_tunnel + 1, 	video_scheduler, 	 VIDEO_SCHEDULER_OUT_PORT,  list[1], 			render_input_port);
-    set_tunnel (video_tunnel + 2, 	video_clock, 		 CLOCK_VIDEO_PORT, 			video_scheduler, 	VIDEO_SCHEDULER_CLOCK_PORT);
-    // setup clock tunnel
-    if (ilclient_setup_tunnel (video_tunnel + 2, 0, 0) != 0)
-    {
-        fprintf (stderr, "Error setting up tunnel\n");
-        ret = -15;
-    }
-    // setup decoding
-    if (ret == 0)
-        ilclient_change_component_state (video_decode, OMX_StateIdle);
+		// create egl_render component
+		if (ilclient_create_component (client, &egl_render, "egl_render", ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_OUTPUT_BUFFERS) != 0)
+		{
+			fprintf (stderr, "Error creating IL COMPONENT egl render\n");
+			ret = -14;
+		}
+		list[1] = egl_render;
+		render_input_port = EGL_RENDER_INPUT_PORT;
+	}
+	else
+	{
+		// create video render component
+		if (ilclient_create_component (client, &video_render, "video_render", ILCLIENT_DISABLE_ALL_PORTS) != 0)
+		{
+			fprintf (stderr, "Error creating IL COMPONENT video render\n");
+			ret = -14;
+		}
+		list[1] = video_render;
+	}
+	// create video scheduler
+	if (ilclient_create_component (client, &video_scheduler, "video_scheduler", ILCLIENT_DISABLE_ALL_PORTS) != 0)
+	{
+		fprintf (stderr, "Error creating IL COMPONENT video scheduler\n");
+		ret = -13;
+	}
+	list[3] = video_scheduler;
+	// setup tunnels
+	set_tunnel (video_tunnel, 		video_decode, 		 VIDEO_DECODE_OUT_PORT, 	video_scheduler, 	VIDEO_SCHEDULER_INPUT_PORT);
+	set_tunnel (video_tunnel + 1, 	video_scheduler, 	 VIDEO_SCHEDULER_OUT_PORT,  list[1], 			render_input_port);
+	set_tunnel (video_tunnel + 2, 	video_clock, 		 CLOCK_VIDEO_PORT, 			video_scheduler, 	VIDEO_SCHEDULER_CLOCK_PORT);
+	// setup clock tunnel
+	if (ilclient_setup_tunnel (video_tunnel + 2, 0, 0) != 0)
+	{
+		fprintf (stderr, "Error setting up tunnel\n");
+		ret = -15;
+	}
+	// setup decoding
+	if (ret == 0)
+		ilclient_change_component_state (video_decode, OMX_StateIdle);
 
-    memset (&video_format, 0, sizeof (OMX_VIDEO_PARAM_PORTFORMATTYPE));
-    video_format.nSize 			     = sizeof (OMX_VIDEO_PARAM_PORTFORMATTYPE);
-    video_format.nVersion.nVersion   = OMX_VERSION;
-    video_format.nPortIndex 		 = VIDEO_DECODE_INPUT_PORT;
+	memset (&video_format, 0, sizeof (OMX_VIDEO_PARAM_PORTFORMATTYPE));
+	video_format.nSize 			     = sizeof (OMX_VIDEO_PARAM_PORTFORMATTYPE);
+	video_format.nVersion.nVersion   = OMX_VERSION;
+	video_format.nPortIndex 		 = VIDEO_DECODE_INPUT_PORT;
 
-    if (video_stream->r_frame_rate.den > 0)
-        video_format.xFramerate	= (long long) (video_stream->r_frame_rate.num / video_stream->r_frame_rate.den) * (1 << 16);
+	if (video_stream->r_frame_rate.den > 0)
+		video_format.xFramerate	= (long long) (video_stream->r_frame_rate.num / video_stream->r_frame_rate.den) * (1 << 16);
 
-    switch (video_codec_ctx->codec_id)
-    {
-        case AV_CODEC_ID_H264:
-            video_format.eCompressionFormat = OMX_VIDEO_CodingAVC;
-            break;
+	switch (video_codec_ctx->codec_id)
+	{
+		case AV_CODEC_ID_H264:
+			video_format.eCompressionFormat = OMX_VIDEO_CodingAVC;
+			break;
 
-        case AV_CODEC_ID_MPEG4:
-            video_format.eCompressionFormat = OMX_VIDEO_CodingMPEG4;
-            break;
+		case AV_CODEC_ID_MPEG4:
+			video_format.eCompressionFormat = OMX_VIDEO_CodingMPEG4;
+			break;
 
-        case AV_CODEC_ID_MPEG2VIDEO:
-            video_format.eCompressionFormat = OMX_VIDEO_CodingMPEG2;
-            break;
+		case AV_CODEC_ID_MPEG2VIDEO:
+			video_format.eCompressionFormat = OMX_VIDEO_CodingMPEG2;
+			break;
 
-        default:
-            video_format.eCompressionFormat = OMX_VIDEO_CodingAutoDetect;
-            break;
-    }
-    // set format parameters for video decoder
-    if (OMX_SetParameter (ILC_GET_HANDLE (video_decode), OMX_IndexParamVideoPortFormat, &video_format) != OMX_ErrorNone)
-    {
-        fprintf (stderr, "Error setting port format parameter on video decoder \n");
-        return 1;
-    }
-    // enable video decoder buffers
-    if (ilclient_enable_port_buffers (video_decode, VIDEO_DECODE_INPUT_PORT, NULL, NULL, NULL) == 0)
-    {
-        ilclient_change_component_state (video_decode, OMX_StateExecuting);
-        // send decoding extra information
-        if (video_codec_ctx->extradata)
-        {
-            if ((omx_video_buffer = ilclient_get_input_buffer (video_decode, VIDEO_DECODE_INPUT_PORT, 1)) == NULL)
-            {
-                fprintf (stderr, "Error getting input buffer to video decoder to send decoding information\n");
-                return 1;
-            }
-            omx_video_buffer->nOffset = 0;
-            omx_video_buffer->nFilledLen = video_codec_ctx->extradata_size;
-            memset (omx_video_buffer->pBuffer, 0x0, omx_video_buffer->nAllocLen);
-            memcpy (omx_video_buffer->pBuffer, video_codec_ctx->extradata, video_codec_ctx->extradata_size);
-            omx_video_buffer->nFlags = OMX_BUFFERFLAG_CODECCONFIG | OMX_BUFFERFLAG_ENDOFFRAME;
+		default:
+			video_format.eCompressionFormat = OMX_VIDEO_CodingAutoDetect;
+			break;
+	}
+	// set format parameters for video decoder
+	if (OMX_SetParameter (ILC_GET_HANDLE (video_decode), OMX_IndexParamVideoPortFormat, &video_format) != OMX_ErrorNone)
+	{
+		fprintf (stderr, "Error setting port format parameter on video decoder \n");
+		return 1;
+	}
+	// enable video decoder buffers
+	if (ilclient_enable_port_buffers (video_decode, VIDEO_DECODE_INPUT_PORT, NULL, NULL, NULL) == 0)
+	{
+		ilclient_change_component_state (video_decode, OMX_StateExecuting);
+		// send decoding extra information
+		if (video_codec_ctx->extradata)
+		{
+			if ((omx_video_buffer = ilclient_get_input_buffer (video_decode, VIDEO_DECODE_INPUT_PORT, 1)) == NULL)
+			{
+				fprintf (stderr, "Error getting input buffer to video decoder to send decoding information\n");
+				return 1;
+			}
+			omx_video_buffer->nOffset = 0;
+			omx_video_buffer->nFilledLen = video_codec_ctx->extradata_size;
+			memset (omx_video_buffer->pBuffer, 0x0, omx_video_buffer->nAllocLen);
+			memcpy (omx_video_buffer->pBuffer, video_codec_ctx->extradata, video_codec_ctx->extradata_size);
+			omx_video_buffer->nFlags = OMX_BUFFERFLAG_CODECCONFIG | OMX_BUFFERFLAG_ENDOFFRAME;
 
-            if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (video_decode), omx_video_buffer) != OMX_ErrorNone)
-            {
-                fprintf (stderr, "Error emptying buffer with extra decoder information\n");
-                return 1;
-            }
-        }
-    }
-    else
-    {
-        fprintf (stderr, "Could not enable port buffers on video decoder\n");
-        return 1;
-    }
-    return 0;
+			if (OMX_EmptyThisBuffer (ILC_GET_HANDLE (video_decode), omx_video_buffer) != OMX_ErrorNone)
+			{
+				fprintf (stderr, "Error emptying buffer with extra decoder information\n");
+				return 1;
+			}
+		}
+	}
+	else
+	{
+		fprintf (stderr, "Could not enable port buffers on video decoder\n");
+		return 1;
+	}
+	return 0;
 }
 
 /**
@@ -1350,10 +1351,10 @@ void rpi_mp_pause ()
 
 int rpi_mp_metadata (const char* key, char** title)
 {
-    AVDictionaryEntry* entry = NULL;
-    entry = av_dict_get (fmt_ctx->metadata, key, 0, AV_DICT_IGNORE_SUFFIX);
-    if (!entry)
-        return 1;
-    *title = entry->value;
-    return 0;
+	AVDictionaryEntry* entry = NULL;
+	entry = av_dict_get (fmt_ctx->metadata, key, 0, AV_DICT_IGNORE_SUFFIX);
+	if (!entry)
+		return 1;
+	*title = entry->value;
+	return 0;
 }
