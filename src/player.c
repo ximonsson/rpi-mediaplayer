@@ -153,7 +153,6 @@ static void fill_egl_texture_buffer (void* data, COMPONENT_T* c)
 {
 	pthread_mutex_lock (&buffer_filled_mut);
 	if ((~flags & STOPPED) &&
-	    c == video_decode &&
 		OMX_FillThisBuffer (ilclient_get_handle (egl_render), omx_egl_buffer) != OMX_ErrorNone)
 	{
 		fprintf (stderr, "OMX_FillThisBuffer failed for egl buffer in callback\n");
@@ -1227,7 +1226,7 @@ int rpi_mp_open (const char* source, int* image_width, int* image_height, int64_
 	{
 		fprintf (stderr, "Could not create clock. exiting\n");
 		return 1;
-	};
+	}
 	// dump input format
 	av_dump_format (fmt_ctx, 0, source, 0);
 	// allocate frame for decoding (audio here)
